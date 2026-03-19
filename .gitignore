@@ -1,0 +1,9 @@
+.gradle/
+build/
+data/
+*.db
+*.log
+.env.service
+.idea/
+.vscode/
+out/

@@ -1,0 +1,16 @@
+Return only one strictly valid JSON object and nothing else.
+Do not use markdown, code fences, explanations, comments, or extra text.
+The JSON must match exactly this structure:
+{
+  "stepDebug": "string",
+  "dialogGoal": "string",
+  "actions": [
+    {
+      "command": "string",
+      "description": "string",
+      "params": {}
+    }
+  ]
+}
+Every action must contain command, description, and params.
+params must always be a JSON object.

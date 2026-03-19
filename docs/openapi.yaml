@@ -1,0 +1,234 @@
+openapi: 3.0.3
+info:
+  title: Dialogue API
+  version: 1.0.0
+  description: HTTP API-сервис для пошагового ведения диалога с хранением шагов в SQLite и вызовами OpenAI.
+servers:
+  - url: http://localhost:7003
+components:
+  securitySchemes:
+    ApiTokenAuth:
+      type: apiKey
+      in: header
+      name: X-API-TOKEN
+  schemas:
+    DialogueStepRequest:
+      type: object
+      required:
+        - dialogId
+        - stepId
+        - prompt
+      properties:
+        dialogId:
+          type: string
+        stepId:
+          type: integer
+          minimum: 1
+        prompt:
+          type: string
+    Action:
+      type: object
+      required:
+        - command
+        - description
+        - params
+      properties:
+        command:
+          type: string
+        description:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+    DialogueData:
+      type: object
+      required:
+        - stepDebug
+        - dialogGoal
+        - dialogTotalTokens
+        - actions
+      properties:
+        stepDebug:
+          type: string
+        dialogGoal:
+          type: string
+        dialogTotalTokens:
+          type: integer
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Action'
+    DialogueStepSuccess:
+      type: object
+      required:
+        - success
+        - dialogId
+        - stepId
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        dialogId:
+          type: string
+        stepId:
+          type: integer
+        data:
+          $ref: '#/components/schemas/DialogueData'
+    ApiError:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        details:
+          type: string
+          nullable: true
+    HealthResponse:
+      type: object
+      required:
+        - success
+        - status
+      properties:
+        success:
+          type: boolean
+          example: true
+        status:
+          type: string
+          example: UP
+    AudioTranscriptionResponse:
+      type: object
+      required:
+        - success
+        - text
+      properties:
+        success:
+          type: boolean
+          example: true
+        text:
+          type: string
+        source:
+          type: string
+          nullable: true
+        language:
+          type: string
+          nullable: true
+        originalFileName:
+          type: string
+          nullable: true
+paths:
+  /api/dialogue/step:
+    post:
+      summary: Create or continue a dialogue step
+      description: Создаёт первый шаг диалога или продолжает существующий по цепочке dialogId/stepId.
+      security:
+        - ApiTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DialogueStepRequest'
+      responses:
+        '200':
+          description: Успешная обработка шага диалога
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DialogueStepSuccess'
+        '400':
+          description: Некорректный запрос или отсутствует предыдущий шаг
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Заголовок X-API-TOKEN отсутствует или неверен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '502':
+          description: OpenAI вернул невалидный JSON даже после retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /health:
+    get:
+      summary: Проверка состояния сервиса
+      security:
+        - ApiTokenAuth: []
+      responses:
+        '200':
+          description: Сервис доступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/audio/transcribe:
+    post:
+      summary: Распознавание аудио в текст
+      description: Принимает multipart/form-data с аудиофайлом и возвращает текстовую расшифровку через OpenAI.
+      security:
+        - ApiTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                language:
+                  type: string
+                source:
+                  type: string
+                originalFileName:
+                  type: string
+      responses:
+        '200':
+          description: Успешное распознавание аудио
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioTranscriptionResponse'
+        '400':
+          description: Некорректный multipart-запрос или отсутствует файл
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Заголовок X-API-TOKEN отсутствует или неверен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '502':
+          description: Ошибка OpenAI transcription API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'

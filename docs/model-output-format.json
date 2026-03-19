@@ -1,0 +1,23 @@
+{
+  "stepDebug": "На этом шаге анализируется входной запрос и формируется список действий",
+  "dialogGoal": "Выполнить задачу пользователя по шагам через набор формализованных действий",
+  "dialogTotalTokens": 900,
+  "actions": [
+    {
+      "command": "create_file",
+      "description": "Создать файл конфигурации приложения",
+      "params": {
+        "path": "/app/config.json",
+        "content": "{\"name\":\"test\"}"
+      }
+    },
+    {
+      "command": "run_command",
+      "description": "Запустить сборку проекта",
+      "params": {
+        "command": "./gradlew build",
+        "workdir": "/app"
+      }
+    }
+  ]
+}
