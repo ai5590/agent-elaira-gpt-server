@@ -14,6 +14,15 @@ public class OpenAiApiKeyProvider {
     }
 
     public String getRequiredApiKey() {
+        String resolved = getOptionalApiKey();
+        if (StringUtils.hasText(resolved)) {
+            return resolved;
+        }
+
+        throw new IllegalStateException("OpenAI API key is missing. Set app.openai.api-key or OPENAI_API_KEY.");
+    }
+
+    public String getOptionalApiKey() {
         String configured = properties.getOpenai().getApiKey();
         if (StringUtils.hasText(configured)) {
             return configured.trim();
@@ -24,6 +33,6 @@ public class OpenAiApiKeyProvider {
             return fromEnv.trim();
         }
 
-        throw new IllegalStateException("OpenAI API key is missing. Set app.openai.api-key or OPENAI_API_KEY.");
+        return null;
     }
 }

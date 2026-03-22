@@ -16,30 +16,46 @@ public class SQLiteDataDirectoryInitializer {
     private static final Logger log = LoggerFactory.getLogger(SQLiteDataDirectoryInitializer.class);
 
     private final String datasourceUrl;
+    private final String logFileName;
 
-    public SQLiteDataDirectoryInitializer(@Value("${spring.datasource.url}") String datasourceUrl) {
+    public SQLiteDataDirectoryInitializer(
+            @Value("${spring.datasource.url}") String datasourceUrl,
+            @Value("${logging.file.name:}") String logFileName
+    ) {
         this.datasourceUrl = datasourceUrl;
+        this.logFileName = logFileName;
     }
 
     @PostConstruct
     public void ensureDirectoryExists() throws IOException {
-        String prefix = "jdbc:sqlite:";
-        if (!datasourceUrl.startsWith(prefix)) {
+        ensureParentDirectory(datasourceUrl, "jdbc:sqlite:", "SQLite data");
+        ensureParentDirectory(logFileName, null, "log");
+    }
+
+    private void ensureParentDirectory(String value, String prefix, String label) throws IOException {
+        if (value == null || value.isBlank()) {
             return;
         }
 
-        String sqlitePath = datasourceUrl.substring(prefix.length());
-        if (sqlitePath.isBlank() || ":memory:".equals(sqlitePath)) {
+        String pathValue = value;
+        if (prefix != null) {
+            if (!value.startsWith(prefix)) {
+                return;
+            }
+            pathValue = value.substring(prefix.length());
+        }
+
+        if (pathValue.isBlank() || ":memory:".equals(pathValue)) {
             return;
         }
 
-        Path dbPath = Paths.get(sqlitePath).normalize();
+        Path dbPath = Paths.get(pathValue).normalize();
         Path parent = dbPath.getParent();
         if (parent == null) {
             return;
         }
 
         Files.createDirectories(parent);
-        log.info("Ensured SQLite data directory exists: {}", parent);
+        log.info("Ensured {} directory exists: {}", label, parent);
     }
 }

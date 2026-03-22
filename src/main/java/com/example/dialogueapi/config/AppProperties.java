@@ -14,6 +14,8 @@ public class AppProperties {
     private final Telegram telegram = new Telegram();
     @Valid
     private final Audio audio = new Audio();
+    @Valid
+    private final Logging logging = new Logging();
 
     public Security getSecurity() {
         return security;
@@ -29,6 +31,10 @@ public class AppProperties {
 
     public Audio getAudio() {
         return audio;
+    }
+
+    public Logging getLogging() {
+        return logging;
     }
 
     public static class Security {
@@ -48,6 +54,7 @@ public class AppProperties {
         private String model = "gpt-5.4";
         private String transcriptionModel = "whisper-1";
         private String baseUrl = "https://api.openai.com";
+        private boolean mockEnabled = false;
 
         public String getApiKey() {
             return apiKey;
@@ -79,6 +86,14 @@ public class AppProperties {
 
         public void setBaseUrl(String baseUrl) {
             this.baseUrl = baseUrl;
+        }
+
+        public boolean isMockEnabled() {
+            return mockEnabled;
+        }
+
+        public void setMockEnabled(boolean mockEnabled) {
+            this.mockEnabled = mockEnabled;
         }
     }
 
@@ -112,6 +127,18 @@ public class AppProperties {
 
         public void setMaxFileSizeMb(int maxFileSizeMb) {
             this.maxFileSizeMb = maxFileSizeMb;
+        }
+    }
+
+    public static class Logging {
+        private boolean debugPackets = false;
+
+        public boolean isDebugPackets() {
+            return debugPackets;
+        }
+
+        public void setDebugPackets(boolean debugPackets) {
+            this.debugPackets = debugPackets;
         }
     }
 }

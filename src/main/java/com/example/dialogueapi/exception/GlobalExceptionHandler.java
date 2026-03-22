@@ -22,6 +22,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiErrorResponse> handleApiException(ApiException exception) {
+        log.error("API exception: status={}, message={}", exception.getStatus(), exception.getMessage(), exception);
         return ResponseEntity.status(exception.getStatus())
                 .body(new ApiErrorResponse(false, exception.getMessage(), rootCauseMessage(exception)));
     }
@@ -33,6 +34,7 @@ public class GlobalExceptionHandler {
                 .stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .collect(Collectors.joining("; "));
+        log.error("Validation exception: {}", message, exception);
         return ResponseEntity.badRequest().body(new ApiErrorResponse(false, message, rootCauseMessage(exception)));
     }
 
@@ -50,6 +52,7 @@ public class GlobalExceptionHandler {
         } else if (exception instanceof MissingServletRequestParameterException missingParameterException) {
             message = "Required request parameter is missing: " + missingParameterException.getParameterName();
         }
+        log.error("Bad request exception: {}", message, exception);
         return ResponseEntity.badRequest().body(new ApiErrorResponse(false, message, rootCauseMessage(exception)));
     }
 

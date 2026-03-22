@@ -35,13 +35,35 @@ public class OpenAiAudioClient {
             OpenAiApiKeyProvider apiKeyProvider
     ) {
         this.properties = properties;
-        this.restClient = RestClient.builder(restTemplateBuilder.build())
-                .baseUrl(stripTrailingSlash(properties.getOpenai().getBaseUrl()))
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKeyProvider.getRequiredApiKey())
-                .build();
+        RestClient.Builder builder = RestClient.builder(restTemplateBuilder.build())
+                .baseUrl(stripTrailingSlash(properties.getOpenai().getBaseUrl()));
+        if (!properties.getOpenai().isMockEnabled()) {
+            builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKeyProvider.getRequiredApiKey());
+        }
+        this.restClient = builder.build();
     }
 
     public AudioTranscriptionResult transcribe(MultipartFile file, String language, String originalFileName) {
+        if (properties.getOpenai().isMockEnabled()) {
+            String detectedLanguage = StringUtils.hasText(language) ? language : "ru";
+            String fileName = StringUtils.hasText(originalFileName) ? originalFileName : file.getOriginalFilename();
+            log.info("OpenAI audio mock mode is enabled; returning a synthetic transcription");
+            if (isPacketDebugEnabled()) {
+                log.debug(
+                        "Outgoing packet -> OpenAI POST /v1/audio/transcriptions [mock mode]: model={}, fileName={}, sizeBytes={}, language={}",
+                        properties.getOpenai().getTranscriptionModel(),
+                        StringUtils.hasText(fileName) ? fileName : "audio.bin",
+                        file.getSize(),
+                        detectedLanguage
+                );
+            }
+            return new AudioTranscriptionResult(
+                    "Mock transcription for " + (StringUtils.hasText(fileName) ? fileName : "audio.bin"),
+                    detectedLanguage,
+                    null
+            );
+        }
+
         try {
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("model", properties.getOpenai().getTranscriptionModel());
@@ -52,6 +74,16 @@ public class OpenAiAudioClient {
 
             String resolvedFileName = StringUtils.hasText(originalFileName) ? originalFileName : file.getOriginalFilename();
             body.add("file", new HttpEntity<>(new NamedByteArrayResource(file.getBytes(), resolvedFileName), buildFileHeaders(file)));
+            if (isPacketDebugEnabled()) {
+                log.debug(
+                        "Outgoing packet -> OpenAI POST /v1/audio/transcriptions: model={}, fileName={}, sizeBytes={}, contentType={}, language={}",
+                        properties.getOpenai().getTranscriptionModel(),
+                        StringUtils.hasText(resolvedFileName) ? resolvedFileName : "audio.bin",
+                        file.getSize(),
+                        file.getContentType(),
+                        language
+                );
+            }
 
             JsonNode response = restClient.post()
                     .uri("/v1/audio/transcriptions")
@@ -61,12 +93,17 @@ public class OpenAiAudioClient {
                     .body(JsonNode.class);
 
             if (response == null) {
+                log.error("OpenAI transcription response is empty");
                 throw new ApiException(HttpStatus.BAD_GATEWAY, "OpenAI transcription response is empty");
+            }
+            if (isPacketDebugEnabled()) {
+                log.debug("Incoming packet <- OpenAI POST /v1/audio/transcriptions: {}", response);
             }
 
             String text = readText(response, "text");
             String detectedLanguage = readText(response, "language");
             if (!StringUtils.hasText(text)) {
+                log.error("OpenAI transcription response does not contain text");
                 throw new ApiException(HttpStatus.BAD_GATEWAY, "OpenAI transcription response does not contain text");
             }
 
@@ -104,6 +141,10 @@ public class OpenAiAudioClient {
             return "";
         }
         return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+    }
+
+    private boolean isPacketDebugEnabled() {
+        return properties.getLogging().isDebugPackets() && log.isDebugEnabled();
     }
 
     public record AudioTranscriptionResult(

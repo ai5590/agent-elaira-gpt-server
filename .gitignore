@@ -1,9 +1,11 @@
 .gradle/
 build/
 data/
+logs/
 *.db
 *.log
 .env.service
+.env
 .idea/
 .vscode/
 out/

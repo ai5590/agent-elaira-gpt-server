@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 @Component
 public class OpenAiClient {
@@ -41,7 +42,6 @@ public class OpenAiClient {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final AppProperties properties;
-    private final String resolvedApiKey;
 
     public OpenAiClient(
             RestTemplateBuilder restTemplateBuilder,
@@ -51,29 +51,89 @@ public class OpenAiClient {
     ) {
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.resolvedApiKey = apiKeyProvider.getRequiredApiKey();
-        this.restClient = RestClient.builder(restTemplateBuilder.build())
+        RestClient.Builder builder = RestClient.builder(restTemplateBuilder.build())
                 .baseUrl(stripTrailingSlash(properties.getOpenai().getBaseUrl()))
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + resolvedApiKey)
-                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .build();
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+
+        if (!properties.getOpenai().isMockEnabled()) {
+            builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKeyProvider.getRequiredApiKey());
+        }
+
+        this.restClient = builder.build();
     }
 
     public OpenAiCallResult createResponse(String prompt, String previousResponseId, String correctiveInstruction) {
+        if (properties.getOpenai().isMockEnabled()) {
+            return createMockResponse(prompt, previousResponseId, correctiveInstruction);
+        }
+
         JsonNode requestBody = buildRequest(prompt, previousResponseId, correctiveInstruction);
-        JsonNode response = restClient.post()
-                .uri("/v1/responses")
-                .body(requestBody)
-                .retrieve()
-                .body(JsonNode.class);
+        if (isPacketDebugEnabled()) {
+            log.debug("Outgoing packet -> OpenAI POST /v1/responses: {}", toCompactJson(requestBody));
+        }
 
-        Objects.requireNonNull(response, "OpenAI response body is empty");
+        try {
+            JsonNode response = restClient.post()
+                    .uri("/v1/responses")
+                    .body(requestBody)
+                    .retrieve()
+                    .body(JsonNode.class);
 
-        String responseId = textOrNull(response.path("id"));
-        String outputText = extractOutputText(response);
-        TokenUsage usage = extractUsage(response.path("usage"));
+            Objects.requireNonNull(response, "OpenAI response body is empty");
+            if (isPacketDebugEnabled()) {
+                log.debug("Incoming packet <- OpenAI POST /v1/responses: {}", toCompactJson(response));
+            }
 
-        return new OpenAiCallResult(responseId, outputText, usage, response);
+            String responseId = textOrNull(response.path("id"));
+            String outputText = extractOutputText(response);
+            TokenUsage usage = extractUsage(response.path("usage"));
+            return new OpenAiCallResult(responseId, outputText, usage, response);
+        } catch (RestClientException exception) {
+            log.error("OpenAI responses request failed", exception);
+            throw exception;
+        }
+    }
+
+    private OpenAiCallResult createMockResponse(String prompt, String previousResponseId, String correctiveInstruction) {
+        log.info("OpenAI mock mode is enabled; returning a synthetic response");
+
+        var response = objectMapper.createObjectNode();
+        response.put("id", "mock-response-" + System.currentTimeMillis());
+        response.put("output_text", """
+                {
+                  "stepDebug": "Mock mode: OpenAI call was not sent to the external API",
+                  "dialogGoal": "Validate local dialogue-api integration",
+                  "actions": [
+                    {
+                      "command": "end_dialogue",
+                      "description": "Finish mock dialogue successfully",
+                      "params": {
+                        "status": "success",
+                        "message": "Mock mode completed request locally"
+                      }
+                    }
+                  ]
+                }
+                """.trim());
+
+        var usage = response.putObject("usage");
+        usage.put("input_tokens", Math.max(1, prompt.length() / 4));
+        usage.put("output_tokens", correctiveInstruction == null ? 32 : 48);
+        usage.put("total_tokens", usage.path("input_tokens").asInt() + usage.path("output_tokens").asInt());
+        if (StringUtils.hasText(previousResponseId)) {
+            response.put("previous_response_id", previousResponseId);
+        }
+        if (isPacketDebugEnabled()) {
+            log.debug("Outgoing packet -> OpenAI POST /v1/responses [mock mode]: {}", toCompactJson(buildRequest(prompt, previousResponseId, correctiveInstruction)));
+            log.debug("Incoming packet <- OpenAI POST /v1/responses [mock mode]: {}", toCompactJson(response));
+        }
+
+        return new OpenAiCallResult(
+                response.path("id").asText(),
+                response.path("output_text").asText(),
+                extractUsage(response.path("usage")),
+                response
+        );
     }
 
     private JsonNode buildRequest(String prompt, String previousResponseId, String correctiveInstruction) {
@@ -168,6 +228,18 @@ public class OpenAiClient {
             return "";
         }
         return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+    }
+
+    private boolean isPacketDebugEnabled() {
+        return properties.getLogging().isDebugPackets() && log.isDebugEnabled();
+    }
+
+    private String toCompactJson(JsonNode node) {
+        try {
+            return objectMapper.writeValueAsString(node);
+        } catch (Exception exception) {
+            return String.valueOf(node);
+        }
     }
 
     public record OpenAiCallResult(
