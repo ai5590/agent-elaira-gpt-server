@@ -6,6 +6,7 @@ public record DialogueStepResponse(
         boolean success,
         String dialogId,
         int stepId,
+        String model,
         ObjectNode data
 ) {
 }

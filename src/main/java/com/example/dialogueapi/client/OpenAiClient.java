@@ -1,16 +1,20 @@
 package com.example.dialogueapi.client;
 
 import com.example.dialogueapi.config.AppProperties;
+import com.example.dialogueapi.exception.ApiException;
 import com.example.dialogueapi.service.OpenAiApiKeyProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -21,6 +25,11 @@ import org.springframework.web.client.RestClientException;
 public class OpenAiClient {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiClient.class);
+    private static final Set<String> SUPPORTED_MODELS = Set.of(
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano"
+    );
 
     private static final String BASE_SYSTEM_INSTRUCTION = """
             You are a backend component. Respond with strictly valid JSON only.
@@ -62,12 +71,18 @@ public class OpenAiClient {
         this.restClient = builder.build();
     }
 
-    public OpenAiCallResult createResponse(String prompt, String previousResponseId, String correctiveInstruction) {
+    public OpenAiCallResult createResponse(
+            String prompt,
+            String previousResponseId,
+            String correctiveInstruction,
+            String requestedModel
+    ) {
+        String resolvedModel = resolveModel(requestedModel);
         if (properties.getOpenai().isMockEnabled()) {
-            return createMockResponse(prompt, previousResponseId, correctiveInstruction);
+            return createMockResponse(prompt, previousResponseId, correctiveInstruction, resolvedModel);
         }
 
-        JsonNode requestBody = buildRequest(prompt, previousResponseId, correctiveInstruction);
+        JsonNode requestBody = buildRequest(prompt, previousResponseId, correctiveInstruction, resolvedModel);
         if (isPacketDebugEnabled()) {
             log.debug("Outgoing packet -> OpenAI POST /v1/responses: {}", toCompactJson(requestBody));
         }
@@ -87,14 +102,19 @@ public class OpenAiClient {
             String responseId = textOrNull(response.path("id"));
             String outputText = extractOutputText(response);
             TokenUsage usage = extractUsage(response.path("usage"));
-            return new OpenAiCallResult(responseId, outputText, usage, response);
+            return new OpenAiCallResult(responseId, outputText, usage, resolvedModel, response);
         } catch (RestClientException exception) {
             log.error("OpenAI responses request failed", exception);
             throw exception;
         }
     }
 
-    private OpenAiCallResult createMockResponse(String prompt, String previousResponseId, String correctiveInstruction) {
+    private OpenAiCallResult createMockResponse(
+            String prompt,
+            String previousResponseId,
+            String correctiveInstruction,
+            String resolvedModel
+    ) {
         log.info("OpenAI mock mode is enabled; returning a synthetic response");
 
         var response = objectMapper.createObjectNode();
@@ -124,7 +144,7 @@ public class OpenAiClient {
             response.put("previous_response_id", previousResponseId);
         }
         if (isPacketDebugEnabled()) {
-            log.debug("Outgoing packet -> OpenAI POST /v1/responses [mock mode]: {}", toCompactJson(buildRequest(prompt, previousResponseId, correctiveInstruction)));
+            log.debug("Outgoing packet -> OpenAI POST /v1/responses [mock mode]: {}", toCompactJson(buildRequest(prompt, previousResponseId, correctiveInstruction, resolvedModel)));
             log.debug("Incoming packet <- OpenAI POST /v1/responses [mock mode]: {}", toCompactJson(response));
         }
 
@@ -132,13 +152,19 @@ public class OpenAiClient {
                 response.path("id").asText(),
                 response.path("output_text").asText(),
                 extractUsage(response.path("usage")),
+                resolvedModel,
                 response
         );
     }
 
-    private JsonNode buildRequest(String prompt, String previousResponseId, String correctiveInstruction) {
+    private JsonNode buildRequest(
+            String prompt,
+            String previousResponseId,
+            String correctiveInstruction,
+            String resolvedModel
+    ) {
         var root = objectMapper.createObjectNode();
-        root.put("model", properties.getOpenai().getModel());
+        root.put("model", resolvedModel);
         if (StringUtils.hasText(previousResponseId)) {
             root.put("previous_response_id", previousResponseId);
         }
@@ -150,6 +176,42 @@ public class OpenAiClient {
         }
         addMessage(input, "user", prompt);
         return root;
+    }
+
+    public String resolveRequestedModel(String requestedModel) {
+        return resolveModel(requestedModel);
+    }
+
+    private String resolveModel(String requestedModel) {
+        String raw = StringUtils.hasText(requestedModel) ? requestedModel : properties.getOpenai().getModel();
+        String canonical = canonicalModel(raw);
+        if (!SUPPORTED_MODELS.contains(canonical)) {
+            String supported = SUPPORTED_MODELS.stream().sorted().collect(Collectors.joining(", "));
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "Unsupported model '%s'. Supported models: %s".formatted(raw, supported)
+            );
+        }
+        return canonical;
+    }
+
+    private String canonicalModel(String rawModel) {
+        if (!StringUtils.hasText(rawModel)) {
+            return "";
+        }
+        String normalized = rawModel.trim().toLowerCase()
+                .replace("_", "-")
+                .replace(" ", "-")
+                .replace("gpt5.4", "gpt-5.4")
+                .replace("gpt-5-4", "gpt-5.4")
+                .replace("--", "-");
+        if ("mini".equals(normalized)) {
+            return "gpt-5.4-mini";
+        }
+        if ("nano".equals(normalized)) {
+            return "gpt-5.4-nano";
+        }
+        return normalized;
     }
 
     private void addMessage(com.fasterxml.jackson.databind.node.ArrayNode input, String role, String text) {
@@ -246,6 +308,7 @@ public class OpenAiClient {
             String responseId,
             String outputText,
             TokenUsage tokenUsage,
+            String model,
             JsonNode rawResponse
     ) {
     }

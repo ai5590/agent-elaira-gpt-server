@@ -74,7 +74,7 @@ class DialogueControllerWebTest {
         data.putArray("actions");
 
         when(dialogueOrchestrationService.processStep(any())).thenReturn(
-                new DialogueStepResponse(true, "dialog-1", 1, data)
+                new DialogueStepResponse(true, "dialog-1", 1, "gpt-5.4-mini", data)
         );
 
         mockMvc.perform(post("/api/dialogue/step")
@@ -89,6 +89,7 @@ class DialogueControllerWebTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.dialogId").value("dialog-1"))
+                .andExpect(jsonPath("$.model").value("gpt-5.4-mini"))
                 .andExpect(jsonPath("$.data.dialogTotalTokens").value(42));
     }
 }

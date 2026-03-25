@@ -16,14 +16,23 @@ public class TelegramNotificationService {
         this.telegramClient = telegramClient;
     }
 
-    public void sendRequestNotification(String dialogId, int stepId, String prompt) {
+    public void sendRequestNotification(
+            String dialogId,
+            int stepId,
+            String model,
+            String previousResponseId,
+            String prompt
+    ) {
+        String previousResponseIdValue = previousResponseId == null ? "null" : previousResponseId;
         send("""
                 dialogId: %s
                 stepId: %d
                 type: request
+                model: %s
+                previous_response_id: %s
                 prompt:
                 %s
-                """.formatted(dialogId, stepId, prompt));
+                """.formatted(dialogId, stepId, model, previousResponseIdValue, prompt));
     }
 
     public void sendAnswerNotification(String dialogId, int stepId, String answer) {

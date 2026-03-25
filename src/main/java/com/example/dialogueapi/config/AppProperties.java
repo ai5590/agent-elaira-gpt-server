@@ -51,7 +51,7 @@ public class AppProperties {
 
     public static class OpenAi {
         private String apiKey = "";
-        private String model = "gpt-5.4";
+        private String model = "gpt-5.4-mini";
         private String transcriptionModel = "whisper-1";
         private String baseUrl = "https://api.openai.com";
         private boolean mockEnabled = false;

@@ -20,7 +20,7 @@ server.port=7003
 
 app.security.token=
 app.openai.api-key=
-app.openai.model=gpt-5.4
+app.openai.model=gpt-5.4-mini
 app.openai.base-url=https://api.openai.com
 
 app.telegram.bot-token=
@@ -39,6 +39,11 @@ spring.jpa.show-sql=false
 2. через переменную окружения `OPENAI_API_KEY`
 
 Если ключ не задан ни там, ни там, приложение не запустится.
+
+Поддерживаемые значения `model`:
+
+- `gpt-5.4-mini`
+- `gpt-5.4-nano`
 
 ## Быстрый запуск
 
@@ -71,7 +76,8 @@ curl -X POST http://localhost:7003/api/dialogue/step \
   -d '{
     "dialogId": "dialog-001",
     "stepId": 1,
-    "prompt": "Сделай план действий"
+    "prompt": "Сделай план действий",
+    "model": "gpt-5.4-mini"
   }'
 ```
 
@@ -84,7 +90,8 @@ curl -X POST http://localhost:7003/api/dialogue/step \
   -d '{
     "dialogId": "dialog-001",
     "stepId": 2,
-    "prompt": "Продолжи выполнение"
+    "prompt": "Продолжи выполнение",
+    "model": "gpt-5.4-nano"
   }'
 ```
 
@@ -101,6 +108,15 @@ curl http://localhost:7003/health
 - в новый OpenAI-запрос передаётся `openai_response_id` предыдущего шага
 
 Если предыдущий шаг не найден, API вернёт ошибку.
+
+## Что возвращается в ответе
+
+Сервис всегда добавляет:
+
+- верхний уровень: `model`
+- внутри `data`: `model`, `requestTokens`, `responseTokens`, `stepTotalTokens`, `dialogTotalTokens`, `previousResponseIdUsed`
+
+Токены считаются по `usage.total_tokens` каждого запроса OpenAI. При `previous_response_id` входные токены могут включать контекст диалога, поэтому стоимость следующих шагов обычно выше.
 
 ## Что хранится в базе
 

@@ -46,7 +46,6 @@ public class DialogueOrchestrationService {
     @Transactional
     public DialogueStepResponse processStep(DialogueStepRequest request) {
         log.info("Incoming dialogue step request: dialogId={}, stepId={}", request.dialogId(), request.stepId());
-        telegramNotificationService.sendRequestNotification(request.dialogId(), request.stepId(), request.prompt());
 
         DialogueStepEntity previousStep = null;
         String initialPreviousResponseId = null;
@@ -66,8 +65,27 @@ public class DialogueOrchestrationService {
             previousDialogTotalTokens = previousStep.getDialogTotalTokens();
         }
 
-        log.info("Sending first request to OpenAI for dialogId={}, stepId={}", request.dialogId(), request.stepId());
-        OpenAiCallResult firstAttempt = openAiClient.createResponse(request.prompt(), initialPreviousResponseId, null);
+        String resolvedModel = openAiClient.resolveRequestedModel(request.model());
+        telegramNotificationService.sendRequestNotification(
+                request.dialogId(),
+                request.stepId(),
+                resolvedModel,
+                initialPreviousResponseId,
+                request.prompt()
+        );
+        log.info(
+                "Sending first request to OpenAI for dialogId={}, stepId={}, model={}, previousResponseId={}",
+                request.dialogId(),
+                request.stepId(),
+                resolvedModel,
+                initialPreviousResponseId
+        );
+        OpenAiCallResult firstAttempt = openAiClient.createResponse(
+                request.prompt(),
+                initialPreviousResponseId,
+                null,
+                resolvedModel
+        );
         logUsage("first", firstAttempt);
 
         ObjectNode validatedResponse = tryValidate(firstAttempt.outputText(), "first");
@@ -76,19 +94,29 @@ public class DialogueOrchestrationService {
 
         int totalRequestTokens = firstAttempt.tokenUsage().requestTokens();
         int totalResponseTokens = firstAttempt.tokenUsage().responseTokens();
+        int totalStepTokens = firstAttempt.tokenUsage().totalTokens();
 
         if (validatedResponse == null) {
             log.info("Retrying OpenAI request for dialogId={}, stepId={} due to invalid JSON", request.dialogId(), request.stepId());
             String retryPreviousResponseId = firstAttempt.responseId();
+            log.info(
+                    "Sending retry request to OpenAI for dialogId={}, stepId={}, model={}, previousResponseId={}",
+                    request.dialogId(),
+                    request.stepId(),
+                    resolvedModel,
+                    retryPreviousResponseId
+            );
             OpenAiCallResult retryAttempt = openAiClient.createResponse(
                     request.prompt(),
                     retryPreviousResponseId,
-                    retryPromptService.getRetryPrompt()
+                    retryPromptService.getRetryPrompt(),
+                    resolvedModel
             );
             logUsage("retry", retryAttempt);
 
             totalRequestTokens += retryAttempt.tokenUsage().requestTokens();
             totalResponseTokens += retryAttempt.tokenUsage().responseTokens();
+            totalStepTokens += retryAttempt.tokenUsage().totalTokens();
             finalAttempt = retryAttempt;
             storedPreviousResponseId = retryPreviousResponseId;
             validatedResponse = tryValidate(retryAttempt.outputText(), "retry");
@@ -101,9 +129,17 @@ public class DialogueOrchestrationService {
             }
         }
 
-        int currentStepTokens = totalRequestTokens + totalResponseTokens;
-        int dialogTotalTokens = previousDialogTotalTokens + currentStepTokens;
+        int dialogTotalTokens = previousDialogTotalTokens + totalStepTokens;
+        validatedResponse.put("model", finalAttempt.model());
+        validatedResponse.put("requestTokens", totalRequestTokens);
+        validatedResponse.put("responseTokens", totalResponseTokens);
+        validatedResponse.put("stepTotalTokens", totalStepTokens);
         validatedResponse.put("dialogTotalTokens", dialogTotalTokens);
+        if (StringUtils.hasText(storedPreviousResponseId)) {
+            validatedResponse.put("previousResponseIdUsed", storedPreviousResponseId);
+        } else {
+            validatedResponse.putNull("previousResponseIdUsed");
+        }
 
         String answerText = toJson(validatedResponse);
         DialogueStepEntity entity = buildEntity(
@@ -125,7 +161,7 @@ public class DialogueOrchestrationService {
         }
 
         telegramNotificationService.sendAnswerNotification(request.dialogId(), request.stepId(), answerText);
-        return new DialogueStepResponse(true, request.dialogId(), request.stepId(), validatedResponse);
+        return new DialogueStepResponse(true, request.dialogId(), request.stepId(), finalAttempt.model(), validatedResponse);
     }
 
     private DialogueStepEntity buildEntity(

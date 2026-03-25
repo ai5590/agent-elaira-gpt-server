@@ -13,7 +13,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -52,17 +51,18 @@ class DialogueOrchestrationServiceTest {
                 telegramNotificationService
         );
 
-        DialogueStepRequest request = new DialogueStepRequest("dialog-1", 2, "Continue");
+        DialogueStepRequest request = new DialogueStepRequest("dialog-1", 2, "Continue", "gpt-5.4-mini");
         DialogueStepEntity previous = new DialogueStepEntity();
         previous.setOpenaiResponseId("resp-prev");
         previous.setDialogTotalTokens(100);
 
         when(repository.findByDialogIdAndStepId("dialog-1", 1)).thenReturn(Optional.of(previous));
         when(retryPromptService.getRetryPrompt()).thenReturn("fix json");
-        when(openAiClient.createResponse("Continue", "resp-prev", null)).thenReturn(
-                new OpenAiCallResult("resp-bad", "not-json", new TokenUsage(11, 7, 18), null)
+        when(openAiClient.resolveRequestedModel("gpt-5.4-mini")).thenReturn("gpt-5.4-mini");
+        when(openAiClient.createResponse("Continue", "resp-prev", null, "gpt-5.4-mini")).thenReturn(
+                new OpenAiCallResult("resp-bad", "not-json", new TokenUsage(11, 7, 18), "gpt-5.4-mini", null)
         );
-        when(openAiClient.createResponse("Continue", "resp-bad", "fix json")).thenReturn(
+        when(openAiClient.createResponse("Continue", "resp-bad", "fix json", "gpt-5.4-mini")).thenReturn(
                 new OpenAiCallResult(
                         "resp-good",
                         """
@@ -79,6 +79,7 @@ class DialogueOrchestrationServiceTest {
                         }
                         """,
                         new TokenUsage(13, 5, 18),
+                        "gpt-5.4-mini",
                         null
                 )
         );
@@ -112,7 +113,7 @@ class DialogueOrchestrationServiceTest {
 
         when(repository.findByDialogIdAndStepId("dialog-404", 1)).thenReturn(Optional.empty());
 
-        assertThrows(ApiException.class, () -> service.processStep(new DialogueStepRequest("dialog-404", 2, "Continue")));
-        verify(openAiClient, never()).createResponse(any(), any(), any());
+        assertThrows(ApiException.class, () -> service.processStep(new DialogueStepRequest("dialog-404", 2, "Continue", null)));
+        verify(openAiClient, never()).createResponse(any(), any(), any(), any());
     }
 }

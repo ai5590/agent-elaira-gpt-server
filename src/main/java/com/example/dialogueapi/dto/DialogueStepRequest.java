@@ -9,6 +9,7 @@ public record DialogueStepRequest(
         @Min(value = 1, message = "stepId must be greater than or equal to 1")
         int stepId,
         @NotBlank(message = "prompt is required")
-        String prompt
+        String prompt,
+        String model
 ) {
 }

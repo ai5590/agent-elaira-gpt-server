@@ -79,4 +79,15 @@ fi
 
 git commit -m "$message"
 
-echo "Commit created successfully."
+if [[ -z "$branch" ]]; then
+  echo "Error: cannot push from detached HEAD (no current branch)." >&2
+  exit 1
+fi
+
+if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+  git push
+else
+  git push -u origin "$branch"
+fi
+
+echo "Commit created and pushed successfully."

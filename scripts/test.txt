@@ -1,7 +1,0 @@
-Для проверки что агент работает используй:
-
-curl -sS -X POST http://127.0.0.1:7003/api/dialogue/step     -H 'Content-Type: application/json'     -d '{
-      "dialogId": "dialog-test-001",
-      "stepId": 1,
-      "prompt": "Привет! Проверь работу API."
-    }'
